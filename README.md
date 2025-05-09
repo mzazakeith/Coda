@@ -43,28 +43,28 @@ Coda is a web application designed to help developers improve their code quality
 We are continuously working to enhance Coda. Here are some of the plans and desired features:
 
 ### Core Functionality Enhancements:
-*   **Persistent Chat History:** Implement robust chat history using IndexedDB or a similar client-side storage solution to save conversations locally.
-*   **Expanded AI Provider Support:** Integrate more AI models and providers beyond Gemini using the Vercel AI SDK (e.g., OpenAI's GPT models, Anthropic's Claude).
-*   **Enhanced Markdown Support:** Utilize `react-markdown` more extensively for richer message formatting in the chat, including tables, lists, and other markdown elements beyond code blocks.
-*   **Improved GitHub PR Handling:**
+*   **📋 Persistent Chat History:** Implement robust chat history using IndexedDB or a similar client-side storage solution to save conversations locally.
+*   **📋 Expanded AI Provider Support:** Integrate more AI models and providers beyond Gemini using the Vercel AI SDK (e.g., OpenAI's GPT models, Anthropic's Claude).
+*   **⏳ Enhanced Markdown Support:** Utilize `react-markdown` more extensively for richer message formatting in the chat, including tables, lists, and other markdown elements beyond code blocks. 
+*   **📋 Improved GitHub PR Handling:**
     *   **PR "Fixing" Ability (Experimental):** Allow the AI to suggest concrete code changes for PRs and potentially create patch files or branch suggestions.
     *   **Conflict Resolution Assistance:** Explore ways the AI can help identify and suggest resolutions for merge conflicts (conceptual).
-*   **AI Function Calling/Tools:** Equip the AI with tools to perform actions, such as:
+*   **📋 AI Function Calling/Tools:** Equip the AI with tools to perform actions, such as:
     *   Searching within the uploaded codebase.
     *   Fetching specific documentation snippets.
     *   Running linters or static analysis tools (if feasible in the environment).
-*   **Review Summaries:** For long reviews or multiple files, provide a concise summary of key findings.
-*   **Export Review Results:** Allow users to export the AI's review comments in formats like Markdown or PDF.
+*   **📋 Review Summaries:** For long reviews or multiple files, provide a concise summary of key findings.
+*   **📋 Export Review Results:** Allow users to export the AI's review comments in formats like Markdown or PDF.
 
 ### User Experience & Workflow:
-*   **User Accounts & Cloud Sync:** Introduce user authentication to allow for saving review history and preferences across devices.
-*   **More Granular Review Configuration:** Allow users to specify areas of focus for the review (e.g., security only, performance, documentation).
-*   **Interactive Diff Viewer:** Enhance the display of PR diffs with more interactive features.
-*   **Real-time Collaboration (Ambitious):** Allow multiple users to participate in a review session.
-*   **VS Code Extension / IDE Integration:** Bring Coda's review capabilities directly into the developer's IDE.
+*   **📋 User Accounts & Cloud Sync:** Introduce user authentication to allow for saving review history and preferences across devices.
+*   **📋 More Granular Review Configuration:** Allow users to specify areas of focus for the review (e.g., security only, performance, documentation).
+*   **📋 Interactive Diff Viewer:** Enhance the display of PR diffs with more interactive features.
+*   **📋 Real-time Collaboration (Ambitious):** Allow multiple users to participate in a review session.
+*   **📋 VS Code Extension / IDE Integration:** Bring Coda's review capabilities directly into the developer's IDE.
 
 ### Technical & Performance:
-*   **Advanced Error Handling:** Implement more specific and user-friendly error messages.
+*   **📋 Advanced Error Handling:** Implement more specific and user-friendly error messages.
 
 ## Tech Stack
 
@@ -111,4 +111,4 @@ Contributions are welcome! Please feel free to open an issue or submit a pull re
 
 ---
 
-*This README is a work in progress and will be updated as the project evolves.*
+*This README is a work in progress and will be updated as the project evolves. In future enhancements 📋 = not yet done, ⏳ = In progress, ✅ = Done* 
