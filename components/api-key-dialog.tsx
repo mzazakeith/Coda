@@ -45,11 +45,17 @@ export function ApiKeyDialog() {
     } else {
       localStorage.removeItem(GITHUB_PAT_STORAGE_KEY);
     }
+    
+    // Dispatch custom event so other components can react to API key changes
+    window.dispatchEvent(new CustomEvent('apiKeysUpdated', { 
+      detail: { 
+        geminiApiKey: geminiApiKey || null,
+        githubPat: githubPat || null 
+      } 
+    }));
+    
     toast.success("API credentials saved successfully!");
     setIsOpen(false);
-    // Optionally, trigger a state update in the parent component or a page reload
-    // if the keys are immediately needed by other parts of the application.
-    // For now, components reading these keys should do so on their own mount/update.
   };
 
   if (!isMounted) {

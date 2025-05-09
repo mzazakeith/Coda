@@ -13,8 +13,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Icons } from "@/components/icons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Loader2, Paperclip, Send, Github, AlertCircle, FileText, Trash2, Settings2 } from "lucide-react";
@@ -73,30 +71,59 @@ export default function ReviewPage() {
   useEffect(() => {
     setIsClient(true); // Ensure localStorage is accessed only on the client
     if (typeof window !== "undefined") {
-      setGeminiApiKey(localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY));
-      setGithubPat(localStorage.getItem(GITHUB_PAT_STORAGE_KEY));
+      const storedApiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY);
+      const storedGithubPat = localStorage.getItem(GITHUB_PAT_STORAGE_KEY);
+      setGeminiApiKey(storedApiKey);
+      setGithubPat(storedGithubPat);
+      console.log("API key from localStorage:", storedApiKey ? "Found" : "Not found");
+      
+      // Set up event listener for API key changes
+      const handleApiKeysUpdated = (event: Event) => {
+        const detail = (event as CustomEvent).detail;
+        if (detail) {
+          if (detail.geminiApiKey !== undefined) {
+            setGeminiApiKey(detail.geminiApiKey);
+            console.log("API key updated via event:", detail.geminiApiKey ? "Found" : "Not found");
+          }
+          if (detail.githubPat !== undefined) {
+            setGithubPat(detail.githubPat);
+          }
+        }
+      };
+      
+      window.addEventListener('apiKeysUpdated', handleApiKeysUpdated);
+      
+      // Clean up event listener
+      return () => {
+        window.removeEventListener('apiKeysUpdated', handleApiKeysUpdated);
+      };
     }
   }, []);
 
 
   const { messages, input, handleInputChange, handleSubmit: handleVercelSubmit, isLoading, error: chatError } = useChat({
     api: "/api/review",
-    body: { // Additional data to send to the API
+    body: { // These properties will be merged with the messages and id in the request
       model: selectedModel,
       files: uploadedFiles,
       githubPrUrl: githubPrUrl,
-      // userMessage: input, // The 'input' is already part of 'messages' sent by useChat
+      apiKey: geminiApiKey, // Pass the API key to the backend
     },
+    id: geminiApiKey || 'no-key', // Use API key as part of the ID to force reset when it changes
     onError: (err) => {
       toast.error(err.message || "An error occurred with the AI chat.");
       console.error("Chat error:", err);
     },
     onFinish: () => {
-      // Potentially clear files/PR URL if desired after first successful review
-      // setUploadedFiles([]);
-      // setGithubPrUrl("");
+      console.log("Chat interaction completed successfully");
     }
   });
+
+  // Re-initialize chat when the API key changes
+  useEffect(() => {
+    // No direct way to reset useChat, but we can at least track API key changes
+    console.log("API key updated:", geminiApiKey ? "Present" : "Not present");
+  }, [geminiApiKey]);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -146,18 +173,24 @@ export default function ReviewPage() {
   const initiateReviewOrSendMessage = (e?: FormEvent) => {
     e?.preventDefault();
     if (isLoading) return;
-    if (!input.trim() && uploadedFiles.length === 0 && !githubPrUrl.trim()) {
+    
+    // Check if API key is available
+    if (!geminiApiKey) {
+      toast.error("Please set your Google Gemini API Key in the settings.");
+      return;
+    }
+
+    // For file uploads or PR URL, we need input or files
+    const hasValidInput = !!input.trim() || uploadedFiles.length > 0 || !!githubPrUrl.trim();
+    
+    if (!hasValidInput) {
       toast.error("Please provide code, a GitHub PR URL, or a message.");
       return;
     }
 
-    // The useChat hook's handleSubmit will send all necessary data via its `body` config.
-    // We pass the current `input` value.
-    // The `body` in `useChat` is updated when `selectedModel`, `uploadedFiles`, or `githubPrUrl` change.
-    // However, `useChat` sends its `messages` array which includes the current input.
-    // We need to ensure the `data` field in `app/api/review/route.ts` gets the latest files/prUrl.
-    // This is handled by `useChat`'s `body` option being reactive.
-
+    console.log("Starting review with model:", selectedModel);
+    console.log("Files:", uploadedFiles.length > 0 ? uploadedFiles.map(f => f.name).join(', ') : "None");
+    
     let initialSystemMessageContent = "";
     if (messages.length === 0) { // Only for the very first message / "Start Review"
         if (uploadedFiles.length > 0) {
@@ -167,15 +200,20 @@ export default function ReviewPage() {
             initialSystemMessageContent += `Reviewing GitHub PR: ${githubPrUrl}. `;
         }
         if (initialSystemMessageContent) {
-            // This message is for user display only, actual files/PR are sent in API body
-            // We can't directly add a system message to `useChat`'s state this way.
-            // Instead, the API prompt will contain this info.
-            // For UI, we can show a toast or a temporary message.
             toast.info(initialSystemMessageContent + "The AI will now analyze this context.");
         }
     }
     
-    handleVercelSubmit(e as any); // Pass the event
+    // For first message with files but no input text, add a simple prompt
+    if (messages.length === 0 && !input.trim() && (uploadedFiles.length > 0 || githubPrUrl)) {
+      handleInputChange({ target: { value: "Please review this code." } } as React.ChangeEvent<HTMLTextAreaElement>);
+    }
+    
+    // Create a small delay to ensure the input change is processed
+    setTimeout(() => {
+      console.log("Submitting review request with input:", input);
+      handleVercelSubmit(e as any);
+    }, 100);
   };
   
   // Update useChat body when relevant state changes
@@ -189,171 +227,219 @@ export default function ReviewPage() {
     // The Vercel AI SDK `useChat` `body` is indeed re-evaluated if its dependencies change.
   }, [selectedModel, uploadedFiles, githubPrUrl]);
 
+  // Function to format message content with code blocks
+  const formatMessageContent = (content: string) => {
+    if (!content) return null;
+    
+    // Check for code blocks with triple backticks
+    const codeBlockRegex = /```([\w]*)\n([\s\S]*?)```/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    
+    // Find all code blocks and process them
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      // Add text before code block
+      if (match.index > lastIndex) {
+        parts.push(
+          <span key={`text-${lastIndex}`}>
+            {content.slice(lastIndex, match.index)}
+          </span>
+        );
+      }
+      
+      // Get language and code
+      const language = match[1].trim() || 'text';
+      const code = match[2];
+      
+      // Add syntax highlighted code block
+      parts.push(
+        <SyntaxHighlighter 
+          key={`code-${match.index}`}
+          language={language}
+          style={vscDarkPlus}
+          className="text-sm rounded-md !mt-2 !mb-2"
+        >
+          {code}
+        </SyntaxHighlighter>
+      );
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    // Add any remaining text after the last code block
+    if (lastIndex < content.length) {
+      parts.push(
+        <span key={`text-${lastIndex}`}>
+          {content.slice(lastIndex)}
+        </span>
+      );
+    }
+    
+    return parts.length > 0 ? parts : content;
+  };
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem-1px)]">
-      <aside className="w-1/3 border-r p-4 flex flex-col space-y-4 overflow-y-auto">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center"><FileText className="mr-2 h-5 w-5" /> Upload Code Files</CardTitle>
-            <CardDescription>Upload files for review. Max 50MB total.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Input
-              id="file-upload" type="file" multiple onChange={handleFileUpload} ref={fileInputRef}
-              className="mb-2" accept={SUPPORTED_FILE_TYPES.join(",")}
-            />
-            <p className="text-xs text-muted-foreground">
-              Supported: {SUPPORTED_FILE_TYPES.slice(0,3).join(", ")}...
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center"><Github className="mr-2 h-5 w-5" /> GitHub PR</CardTitle>
-            <CardDescription>Enter a GitHub PR URL for review.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Input
-              id="github-pr-url" type="url" placeholder="https://github.com/owner/repo/pull/123"
-              value={githubPrUrl} onChange={(e) => setGithubPrUrl(e.target.value)}
-            />
-          </CardContent>
-        </Card>
-        
-        {uploadedFiles.length > 0 && (
-          <Card className="flex-shrink-0">
-            <CardHeader><CardTitle>Uploaded Files ({uploadedFiles.length})</CardTitle></CardHeader>
+    <>
+      <div className="flex h-[calc(100dvh-3.5rem-1px)]">
+        <aside className="w-1/3 border-r p-4 flex flex-col space-y-4 overflow-y-auto">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center"><FileText className="mr-2 h-5 w-5" /> Upload Code Files</CardTitle>
+              <CardDescription>Upload files for review. Max 50MB total.</CardDescription>
+            </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[200px] pr-3">
-                <Accordion type="multiple" className="w-full">
-                  {uploadedFiles.map((file, index) => (
-                    <AccordionItem value={`item-${index}`} key={index}>
-                      <AccordionTrigger className="flex justify-between items-center w-full">
-                        <span className="truncate">{file.name}</span>
-                        <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); removeFile(file.name); }} className="ml-2">
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <SyntaxHighlighter language={file.language} style={vscDarkPlus} customStyle={{ maxHeight: '300px', overflowY: 'auto', fontSize: '0.8rem' }}>
-                          {file.content}
-                        </SyntaxHighlighter>
-                      </AccordionContent>
-                    </AccordionItem>
-                  ))}
-                </Accordion>
-              </ScrollArea>
+              <Input
+                id="file-upload" type="file" multiple onChange={handleFileUpload} ref={fileInputRef}
+                className="mb-2" accept={SUPPORTED_FILE_TYPES.join(",")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Supported: {SUPPORTED_FILE_TYPES.slice(0,3).join(", ")}...
+              </p>
             </CardContent>
           </Card>
-        )}
 
-        <Card>
-          <CardHeader><CardTitle>Model Selection</CardTitle></CardHeader>
-          <CardContent>
-            <Select value={selectedModel} onValueChange={setSelectedModel}>
-              <SelectTrigger><SelectValue placeholder="Select AI Model" /></SelectTrigger>
-              <SelectContent>
-                {AVAILABLE_MODELS.map((model) => (
-                  <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-
-        <Button onClick={() => initiateReviewOrSendMessage()} disabled={isLoading} className="w-full mt-auto">
-          {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Icons.Code className="mr-2 h-4 w-4" />}
-          {messages.length > 0 ? "Send Message" : "Start Code Review"}
-        </Button>
-      </aside>
-
-      <main className="w-2/3 flex flex-col p-4">
-        {chatError && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Chat Error</AlertTitle>
-            <AlertDescription>{chatError.message}</AlertDescription>
-          </Alert>
-        )}
-        <ScrollArea className="flex-1 mb-4 pr-3" ref={chatContainerRef}>
-          {messages.length === 0 && !isLoading && (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <Icons.Bot className="h-16 w-16 text-muted-foreground mb-4" />
-              <p className="text-lg text-muted-foreground">Welcome to AI Code Reviewer!</p>
-              <p className="text-sm text-muted-foreground">
-                Upload code, enter a GitHub PR URL, select a model, and type a message or click "Start Code Review".
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">
-                Configure API keys via the <Settings2 className="inline h-3 w-3"/> icon in the header if needed.
-              </p>
-            </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center"><Github className="mr-2 h-5 w-5" /> GitHub PR</CardTitle>
+              <CardDescription>Enter a GitHub PR URL for review.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Input
+                id="github-pr-url" type="url" placeholder="https://github.com/owner/repo/pull/123"
+                value={githubPrUrl} onChange={(e) => setGithubPrUrl(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+          
+          {uploadedFiles.length > 0 && (
+            <Card className="flex-shrink-0">
+              <CardHeader><CardTitle>Uploaded Files ({uploadedFiles.length})</CardTitle></CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[200px] pr-3">
+                  <Accordion type="multiple" className="w-full">
+                    {uploadedFiles.map((file, index) => (
+                      <AccordionItem value={`item-${index}`} key={index}>
+                        <AccordionTrigger className="flex justify-between items-center w-full">
+                          <span className="truncate">{file.name}</span>
+                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); removeFile(file.name); }} className="ml-2">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <SyntaxHighlighter language={file.language} style={vscDarkPlus} customStyle={{ maxHeight: '300px', overflowY: 'auto', fontSize: '0.8rem' }}>
+                            {file.content}
+                          </SyntaxHighlighter>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                </ScrollArea>
+              </CardContent>
+            </Card>
           )}
-          {messages.map((msg: VercelAIMessage) => ( // Use VercelAIMessage type
-            <div
-              key={msg.id}
-              className={`mb-4 p-3 rounded-lg max-w-[85%] whitespace-pre-wrap ${ // whitespace-pre-wrap for newlines
-                msg.role === "user"
-                  ? "bg-primary text-primary-foreground ml-auto"
-                  : msg.role === "assistant"
-                  ? "bg-muted mr-auto"
-                  : "bg-blue-500/20 text-blue-700 dark:text-blue-300 text-sm mr-auto" // System/other messages
-              }`}
-            >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code({ node, inline, className, children, ...props }) {
-                    const match = /language-(\w+)/.exec(className || "");
-                    return !inline && match ? (
-                      <SyntaxHighlighter
-                        style={vscDarkPlus} language={match[1]} PreTag="div"
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, "")}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className={className} {...props}>{children}</code>
-                    );
-                  },
-                  a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" />
-                }}
+
+          <Card>
+            <CardHeader><CardTitle>Model Selection</CardTitle></CardHeader>
+            <CardContent>
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger><SelectValue placeholder="Select AI Model" /></SelectTrigger>
+                <SelectContent>
+                  {AVAILABLE_MODELS.map((model) => (
+                    <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
+          <Button onClick={() => initiateReviewOrSendMessage()} disabled={isLoading} className="w-full mt-auto">
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Icons.Code className="mr-2 h-4 w-4" />}
+            {messages.length > 0 ? "Send Message" : "Start Code Review"}
+          </Button>
+        </aside>
+
+        <main className="w-2/3 flex flex-col p-4">
+          {chatError && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Chat Error</AlertTitle>
+              <AlertDescription>{chatError.message}</AlertDescription>
+            </Alert>
+          )}
+          <ScrollArea className="flex-1 mb-4 pr-3" ref={chatContainerRef}>
+            {messages.length === 0 && !isLoading && (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <Icons.Bot className="h-16 w-16 text-muted-foreground mb-4" />
+                <p className="text-lg text-muted-foreground">Welcome to AI Code Reviewer!</p>
+                <p className="text-sm text-muted-foreground">
+                  Upload code, enter a GitHub PR URL, select a model, and type a message or click "Start Code Review".
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Configure API keys via the <Settings2 className="inline h-3 w-3"/> icon in the header if needed.
+                </p>
+              </div>
+            )}
+            {messages.map((msg: VercelAIMessage) => (
+              <div
+                key={msg.id}
+                className={`mb-4 p-3 rounded-lg max-w-[85%] whitespace-pre-wrap ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground ml-auto"
+                    : msg.role === "assistant"
+                    ? "bg-muted mr-auto"
+                    : "bg-blue-500/20 text-blue-700 dark:text-blue-300 text-sm mr-auto"
+                }`}
               >
-                {msg.content}
-              </ReactMarkdown>
-              <p className={`text-xs mt-1 ${msg.role === "user" ? "text-primary-foreground/70 text-right" : "text-muted-foreground/70"}`}>
-                {new Date(msg.createdAt || Date.now()).toLocaleTimeString()} {/* Use createdAt from VercelAIMessage */}
-              </p>
-            </div>
-          ))}
-          {isLoading && <ProcessingIndicator />}
-        </ScrollArea>
-        <form onSubmit={initiateReviewOrSendMessage} className="flex items-center space-x-2">
-          <Textarea
-            placeholder="Ask questions, request clarifications, or provide more context..."
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                initiateReviewOrSendMessage();
-              }
-            }}
-            className="flex-1 resize-none"
-            rows={2}
-            disabled={isLoading}
-          />
-          <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && uploadedFiles.length === 0 && !githubPrUrl.trim())}>
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            <span className="sr-only">Send</span>
-          </Button>
-          <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} title="Attach files" disabled={isLoading}>
-            <Paperclip className="h-4 w-4" />
-            <span className="sr-only">Attach files</span>
-          </Button>
-        </form>
-      </main>
-    </div>
+                <div className="prose prose-sm dark:prose-invert">
+                  {formatMessageContent(msg.content)}
+                </div>
+                <p className={`text-xs mt-1 ${msg.role === "user" ? "text-primary-foreground/70 text-right" : "text-muted-foreground/70"}`}>
+                  {new Date(msg.createdAt || Date.now()).toLocaleTimeString()}
+                </p>
+              </div>
+            ))}
+            {isLoading && <ProcessingIndicator />}
+          </ScrollArea>
+          <form onSubmit={initiateReviewOrSendMessage} className="flex items-center space-x-2">
+            <Textarea
+              placeholder="Ask questions, request clarifications, or provide more context..."
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  initiateReviewOrSendMessage();
+                }
+              }}
+              className="flex-1 resize-none"
+              rows={2}
+              disabled={isLoading}
+            />
+            <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && uploadedFiles.length === 0 && !githubPrUrl.trim())}>
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              <span className="sr-only">Send</span>
+            </Button>
+            <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} title="Attach files" disabled={isLoading}>
+              <Paperclip className="h-4 w-4" />
+              <span className="sr-only">Attach files</span>
+            </Button>
+          </form>
+        </main>
+      </div>
+      
+      {/* Add debugging info */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed bottom-0 right-0 p-4 bg-black/80 text-white text-xs max-w-xs z-50 rounded-tl-lg">
+          <div className="font-bold">Debug Info:</div>
+          <div>API Key: {geminiApiKey ? "Set ✓" : "Missing ✗"}</div>
+          <div>Model: {selectedModel}</div>
+          <div>Files: {uploadedFiles.length}</div>
+          <div>Status: {isLoading ? "Loading..." : "Ready"}</div>
+          <div>Messages: {messages.length}</div>
+          {chatError && <div className="text-red-400">Error: {chatError.message}</div>}
+        </div>
+      )}
+    </>
   );
 }

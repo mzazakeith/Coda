@@ -16,8 +16,8 @@ export const metadata: Metadata = {
   description:
     "Submit code or GitHub PRs for AI-powered review and discussion.",
   keywords: ["AI", "Code Review", "LLM", "Gemini", "GitHub", "Developer Tools"],
-  authors: [{ name: "Bolt", url: "https://bolt.dev" }], // Replace with your info
-  creator: "Bolt", // Replace with your info
+  authors: [{ name: "Mzaza", url: "https://portefeuille-tau.vercel.app/" }], // Replace with your info
+  creator: "Mzaza", // Replace with your info
   // Add more metadata as needed, like openGraph, twitter cards, icons etc.
   icons: {
     icon: "/favicon.ico", // Make sure to add a favicon.ico to your public folder

@@ -7,16 +7,16 @@ export function Footer() {
         <p className="text-balance text-center text-sm leading-loose text-muted-foreground md:text-left">
           Built by{" "}
           <a
-            href="https://bolt.dev" // Replace with your actual link
+            href="https://portefeuille-tau.vercel.app/" 
             target="_blank"
             rel="noreferrer"
             className="font-medium underline underline-offset-4"
           >
-            Bolt
+            Mzaza
           </a>
           . The source code is available on{" "}
           <a
-            href="https://github.com/your-repo" // Replace with your actual repo link
+            href="https://github.com/mzazakeith/Coda"
             target="_blank"
             rel="noreferrer"
             className="font-medium underline underline-offset-4"

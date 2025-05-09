@@ -1,0 +1,40 @@
+# Next.js specific
+.next/
+out/
+dist/
+node_modules/
+.next/cache/
+.next/serverless/
+
+# Vercel specifics
+.vercel/
+vercel.json
+
+# General build artifacts
+dist/
+build/
+coverage/
+
+# IDE/Editor temp files
+.DS_Store
+*.log
+*.tmp
+*.com
+*.bak
+*.swp
+
+# Package manager files
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Testing files (customize as needed)
+**/__tests__/*
+**/__snapshots__/*
+**/coverage/*
+
+# Local environment variables (very important for security!)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
