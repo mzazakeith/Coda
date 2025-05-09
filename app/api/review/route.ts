@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     // Create the Google AI provider with the API key
     const google = createGoogleGenerativeAI({ apiKey: GEMINI_API_KEY });
 
-    let systemPrompt = "You are an expert AI code reviewer. Your primary goal is to provide a comprehensive, clear, and actionable review of the submitted code or pull request. \n\n" +
+    let systemPrompt = "You are an expert Senior Software Engineer with knowledge in multiple programming languages. Your primary goal is to provide a comprehensive, clear, and actionable review of the submitted code or pull request or chat with the user about anything tech/coding related. \n\n" +
       "Key areas to focus on:\n" +
       "- **Bugs and Logic Errors**: Identify any potential bugs, logical flaws, or edge cases not handled.\n" +
       "- **Performance**: Highlight inefficiencies and suggest optimizations.\n" +
@@ -65,11 +65,11 @@ export async function POST(req: NextRequest) {
       }))
     ];
     
-    console.log('Sending request to Google AI with model:', modelName || 'gemini-1.5-flash-latest');
+    console.log('Sending request to Google AI with model:', modelName || 'gemini-2.5-flash-preview-04-17');
     
     // Stream the response
     const result = await streamText({
-      model: google(modelName || 'gemini-1.5-flash-latest'),
+      model: google(modelName || 'gemini-2.5-flash-preview-04-17'),
       messages: currentMessages,
       temperature: 0.7,
       topK: 1,

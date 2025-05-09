@@ -20,7 +20,7 @@ export default function HomePage() {
             Start Reviewing <ArrowRight className="ml-2 h-5 w-5" />
           </Link>
           <Button variant="outline" size="lg" asChild>
-            <Link href="https://github.com/your-repo/ai-code-reviewer" target="_blank">
+            <Link href="https://github.com/mzazakeith/Coda" target="_blank">
               <Icons.GitHub className="mr-2 h-5 w-5" />
               View on GitHub
             </Link>

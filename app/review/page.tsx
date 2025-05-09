@@ -14,14 +14,15 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Loader2, Paperclip, Send, Github, AlertCircle, FileText, Trash2, Settings2 } from "lucide-react";
+import { Loader2, Paperclip, Send, Github, AlertCircle, FileText, Trash2, Settings } from "lucide-react";
 import { ProcessingIndicator } from "@/components/processing-indicator";
 
 
 const AVAILABLE_MODELS = [
+  { id: "gemini-2.5-flash-preview-04-17", name: "Gemini 2.5 Flash (Preview)" },
+  { id: "gemini-2.5-pro-preview-03-25", name: "Gemini 2.5 Pro (Preview)" },
   { id: "gemini-1.5-flash-latest", name: "Gemini 1.5 Flash" },
   { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro" },
-  { id: "gemini-pro", name: "Gemini Pro (Legacy)" },
   // Add other models as needed, ensure they are supported by @ai-sdk/google
 ];
 
@@ -30,6 +31,8 @@ interface UploadedFile {
   content: string;
   language: string;
 }
+
+// Will move this to constants file or directory
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const MAX_TOTAL_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
@@ -632,12 +635,12 @@ export default function ReviewPage() {
             {messages.length === 0 && !isLoading && (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Icons.Bot className="h-16 w-16 text-muted-foreground mb-4" />
-                <p className="text-lg text-muted-foreground">Welcome to AI Code Reviewer!</p>
+                <p className="text-lg text-muted-foreground">Welcome to Coda!</p>
                 <p className="text-sm text-muted-foreground">
-                  Upload code, enter a GitHub PR URL, select a model, and type a message or click "Start Code Review".
+                Just Ask a Question or Upload code, enter a GitHub PR URL, select a model, and type a message or click "Start Code Review".
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Configure API keys via the <Settings2 className="inline h-3 w-3"/> icon in the header if needed.
+                  Configure API keys via the <Settings className="inline h-3 w-3"/> icon in the header if needed.
                 </p>
               </div>
             )}
