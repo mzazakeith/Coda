@@ -2,6 +2,18 @@
 
 Coda is a web application designed to help developers improve their code quality by leveraging the power of Generative AI. Users can submit code snippets, entire files, or GitHub Pull Request URLs for comprehensive review and receive actionable feedback from advanced AI models like Google Gemini. Or just chat with Coda on technical topics.
 
+---
+
+## Screenshots
+
+![Coda Screenshot 1](./1.png)
+
+![Coda Screenshot 2](./2.png)
+
+![Coda Screenshot 3](./3.png)
+
+---
+
 ## Key Features (Currently Implemented)
 
 *   **AI Code Analysis:** Submit code (files or direct input) or GitHub PR URLs for review by AI.
