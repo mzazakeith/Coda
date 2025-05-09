@@ -54,11 +54,146 @@ const languageMap: { [key: string]: string } = {
 const GEMINI_API_KEY_STORAGE_KEY = "gemini_api_key";
 const GITHUB_PAT_STORAGE_KEY = "github_pat";
 
+const GITHUB_API_BASE = "https://api.github.com";
+
+async function fetchGitHubPRContent(prUrl: string, githubPat: string | null) {
+  try {
+    // Parse the GitHub PR URL
+    // Format: https://github.com/owner/repo/pull/number
+    const urlParts = prUrl.split('/');
+    if (urlParts.length < 7 || urlParts[2] !== 'github.com' || urlParts[5] !== 'pull') {
+      throw new Error('Invalid GitHub PR URL format');
+    }
+
+    const owner = urlParts[3];
+    const repo = urlParts[4];
+    const prNumber = urlParts[6];
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/vnd.github.v3+json',
+    };
+
+    if (githubPat) {
+      headers['Authorization'] = `token ${githubPat}`;
+    }
+
+    // Fetch PR details
+    const prResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+      headers
+    });
+
+    if (!prResponse.ok) {
+      throw new Error(`GitHub API error: ${prResponse.status} ${await prResponse.text()}`);
+    }
+
+    const prData = await prResponse.json();
+    
+    // Fetch PR files
+    const filesResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/files`, {
+      headers
+    });
+    
+    if (!filesResponse.ok) {
+      throw new Error(`GitHub API error (files): ${filesResponse.status} ${await filesResponse.text()}`);
+    }
+    
+    const filesData = await filesResponse.json();
+    
+    // Format PR info
+    const prInfo = {
+      url: prUrl,
+      title: prData.title,
+      description: prData.body || '(No description)',
+      author: prData.user?.login || 'Unknown',
+      additions: prData.additions,
+      deletions: prData.deletions,
+      changedFiles: prData.changed_files,
+      files: filesData.map((file: any) => ({
+        name: file.filename,
+        status: file.status, // added, modified, removed
+        additions: file.additions,
+        deletions: file.deletions,
+        patch: file.patch || '(Binary file or too large to display)',
+      }))
+    };
+    
+    return prInfo;
+  } catch (error: any) {
+    console.error("Error fetching GitHub PR:", error);
+    throw new Error(`Failed to fetch PR details: ${error.message}`);
+  }
+}
+
+function formatPRFileToDiff(file: any): string {
+  // Create a git-style diff header
+  let diffContent = `diff --git a/${file.name} b/${file.name}\n`;
+  diffContent += `--- a/${file.name}\n`;
+  diffContent += `+++ b/${file.name}\n`;
+  
+  // Add file metadata
+  diffContent += `File status: ${file.status}\n`;
+  diffContent += `Changes: ${file.additions} additions, ${file.deletions} deletions\n\n`;
+  
+  // Add the actual diff content if available
+  if (file.patch) {
+    diffContent += file.patch;
+  } else {
+    // Handle binary files or large diffs that GitHub API doesn't return completely
+    diffContent += `[Binary file or changes too large to display]\n`;
+    
+    // Add explanation about potentially missing content
+    if (file.status === 'modified' && !file.patch) {
+      diffContent += `\nNote: This file was modified but GitHub API didn't return the patch data.\n`;
+      diffContent += `This typically happens for binary files or very large changes.\n`;
+    }
+  }
+  
+  return diffContent;
+}
+
+function formatPRSummary(prData: any): string {
+  let summary = `# GitHub PR Review Request\n\n`;
+  
+  // Basic PR information
+  summary += `## PR Details\n`;
+  summary += `- **Title**: ${prData.title}\n`;
+  summary += `- **Author**: ${prData.author}\n`;
+  summary += `- **URL**: ${prData.url}\n`;
+  summary += `- **Changes**: ${prData.changedFiles} files changed, +${prData.additions} -${prData.deletions}\n\n`;
+  
+  // Description
+  summary += `## Description\n${prData.description || '(No description provided)'}\n\n`;
+  
+  // Files changed summary
+  summary += `## Files Changed\n`;
+  prData.files.forEach((file: any) => {
+    let changeSymbol = '';
+    if (file.status === 'added') changeSymbol = '➕';
+    else if (file.status === 'removed') changeSymbol = '🗑️';
+    else if (file.status === 'modified') changeSymbol = '✏️';
+    else if (file.status === 'renamed') changeSymbol = '🔄';
+    
+    summary += `- ${changeSymbol} \`${file.name}\` (${file.status}, +${file.additions} -${file.deletions})\n`;
+  });
+  
+  summary += `\n## Review Request\n`;
+  summary += `Please review this PR focusing on:\n`;
+  summary += `- Code quality and best practices\n`;
+  summary += `- Potential bugs or logic errors\n`;
+  summary += `- Performance considerations\n`;
+  summary += `- Security concerns\n`;
+  summary += `- Overall architecture and design\n\n`;
+  summary += `I've attached the diffs for each file. Please provide a thorough and constructive code review.\n`;
+  
+  return summary;
+}
+
 export default function ReviewPage() {
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [githubPrUrl, setGithubPrUrl] = useState("");
-  // const [error, setError] = useState<string | null>(null); // useChat handles errors
+  const [prContent, setPrContent] = useState<any>(null); // Add state for PR content
+  const [isPrLoading, setIsPrLoading] = useState(false); // Add state for PR loading status
   
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -170,9 +305,9 @@ export default function ReviewPage() {
     setUploadedFiles(files => files.filter(file => file.name !== fileName));
   };
 
-  const initiateReviewOrSendMessage = (e?: FormEvent) => {
+  const initiateReviewOrSendMessage = async (e?: FormEvent) => {
     e?.preventDefault();
-    if (isLoading) return;
+    if (isLoading || isPrLoading) return;
     
     // Check if API key is available
     if (!geminiApiKey) {
@@ -189,7 +324,60 @@ export default function ReviewPage() {
     }
 
     console.log("Starting review with model:", selectedModel);
-    console.log("Files:", uploadedFiles.length > 0 ? uploadedFiles.map(f => f.name).join(', ') : "None");
+    
+    // Handle GitHub PR - use cached PR content if available
+    let prFiles: UploadedFile[] = [];
+    let initialPrompt = "";
+    
+    // Check if we already have PR content or need to fetch it
+    if (githubPrUrl) {
+      if (prContent) {
+        // We already have PR content, use it
+        console.log("Using cached PR content for", githubPrUrl);
+        
+        // Regenerate files array from cached PR content
+        prFiles = prContent.files.map((file: any) => ({
+          name: file.name,
+          content: formatPRFileToDiff(file),
+          language: "diff"
+        }));
+        
+        initialPrompt = formatPRSummary(prContent);
+      } else {
+        // Need to fetch PR content
+        try {
+          setIsPrLoading(true);
+          toast.info(`Fetching PR content from ${githubPrUrl}...`);
+          
+          const prData = await fetchGitHubPRContent(githubPrUrl, githubPat);
+          setPrContent(prData);
+          
+          // Convert PR data into virtual files for review
+          prFiles = prData.files.map((file: any) => ({
+            name: file.name,
+            content: formatPRFileToDiff(file),
+            language: "diff"
+          }));
+          
+          initialPrompt = formatPRSummary(prData);
+          
+          toast.success(`PR data fetched successfully. Found ${prData.files.length} changed files.`);
+        } catch (error: any) {
+          toast.error(`Failed to fetch PR data: ${error.message}`);
+          console.error("PR fetch error:", error);
+          setIsPrLoading(false);
+          return;
+        } finally {
+          setIsPrLoading(false);
+        }
+      }
+    }
+    
+    console.log("Files for review:", 
+      prFiles.length > 0 
+        ? `${prFiles.length} files from PR` 
+        : (uploadedFiles.length > 0 ? uploadedFiles.map(f => f.name).join(', ') : "None")
+    );
     
     let initialSystemMessageContent = "";
     if (messages.length === 0) { // Only for the very first message / "Start Review"
@@ -204,16 +392,44 @@ export default function ReviewPage() {
         }
     }
     
-    // For first message with files but no input text, add a simple prompt
-    if (messages.length === 0 && !input.trim() && (uploadedFiles.length > 0 || githubPrUrl)) {
-      handleInputChange({ target: { value: "Please review this code." } } as React.ChangeEvent<HTMLTextAreaElement>);
+    // For first message with files but no input text, add a simple prompt or use PR-specific prompt
+    if (messages.length === 0 && !input.trim()) {
+      if (initialPrompt) {
+        console.log("Setting PR-specific prompt:", initialPrompt);
+        handleInputChange({ target: { value: initialPrompt } } as React.ChangeEvent<HTMLTextAreaElement>);
+      } else if (uploadedFiles.length > 0 || githubPrUrl) {
+        handleInputChange({ target: { value: "Please review this code." } } as React.ChangeEvent<HTMLTextAreaElement>);
+      }
     }
+    
+    // Prepare the combined files list
+    const combinedFiles = prFiles.length > 0 ? [...uploadedFiles, ...prFiles] : uploadedFiles;
+    
+    // Store the combined files for access in the final submission
+    const tempStoredFiles = [...combinedFiles];
     
     // Create a small delay to ensure the input change is processed
     setTimeout(() => {
-      console.log("Submitting review request with input:", input);
-      handleVercelSubmit(e as any);
-    }, 100);
+      const currentInput = input || initialPrompt || "Please review this code.";
+      console.log("Submitting review request with input:", currentInput);
+      console.log(`Sending ${tempStoredFiles.length} files to API`);
+      
+      if (tempStoredFiles.length > 0) {
+        // Log some file details for debugging
+        console.log("File names:", tempStoredFiles.map(f => f.name).join(', '));
+        console.log("First file size:", tempStoredFiles[0]?.content.length || 0, "chars");
+      }
+      
+      // We need to manually set the body for this specific request
+      handleVercelSubmit(e as any, {
+        body: {
+          model: selectedModel,
+          files: tempStoredFiles,
+          githubPrUrl: prContent ? undefined : githubPrUrl, // Don't send PR URL if we've fetched content
+          apiKey: geminiApiKey
+        }
+      });
+    }, 200);
   };
   
   // Update useChat body when relevant state changes
@@ -307,8 +523,40 @@ export default function ReviewPage() {
             <CardContent>
               <Input
                 id="github-pr-url" type="url" placeholder="https://github.com/owner/repo/pull/123"
-                value={githubPrUrl} onChange={(e) => setGithubPrUrl(e.target.value)}
+                value={githubPrUrl} 
+                onChange={(e) => {
+                  // Clear PR content if URL changes
+                  if (e.target.value !== githubPrUrl) {
+                    setPrContent(null);
+                  }
+                  setGithubPrUrl(e.target.value);
+                }}
               />
+              
+              {/* PR content status */}
+              {githubPrUrl && (
+                <div className="mt-2 text-sm">
+                  {isPrLoading ? (
+                    <div className="flex items-center text-muted-foreground">
+                      <ProcessingIndicator />
+                      <span>Fetching PR data...</span>
+                    </div>
+                  ) : prContent ? (
+                    <div className="bg-muted p-2 rounded-md">
+                      <p className="font-semibold">PR: {prContent.title}</p>
+                      <p>Author: {prContent.author}</p>
+                      <p className="text-xs">Files: {prContent.changedFiles}, +{prContent.additions} -{prContent.deletions}</p>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        <span className="text-green-500 font-semibold">✓</span> PR content fetched for review
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground italic">
+                      PR content will be fetched when you start the review
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
           
@@ -353,10 +601,25 @@ export default function ReviewPage() {
             </CardContent>
           </Card>
 
-          <Button onClick={() => initiateReviewOrSendMessage()} disabled={isLoading} className="w-full mt-auto">
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Icons.Code className="mr-2 h-4 w-4" />}
-            {messages.length > 0 ? "Send Message" : "Start Code Review"}
-          </Button>
+          <div className="flex items-center gap-2 mt-4">
+            <Button
+              type="submit"
+              onClick={initiateReviewOrSendMessage}
+              disabled={isLoading || isPrLoading}
+              className="w-full"
+            >
+              {isLoading || isPrLoading ? (
+                <>
+                  <ProcessingIndicator/>
+                  {isPrLoading ? "Fetching PR..." : "Processing..."}
+                </>
+              ) : messages.length === 0 ? (
+                "Start Code Review"
+              ) : (
+                "Send Message"
+              )}
+            </Button>
+          </div>
         </aside>
 
         <main className="w-2/3 flex flex-col p-4">
