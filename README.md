@@ -66,7 +66,7 @@ We are continuously working to enhance Coda. Here are some of the plans and desi
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/mzazakeith/Coda.git # Replace with your repo URL
+    git clone https://github.com/mzazakeith/Coda.git
     cd Coda
     ```
 
