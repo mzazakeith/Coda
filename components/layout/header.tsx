@@ -5,6 +5,7 @@ import { Icons } from "@/components/icons";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { ApiKeyDialog } from "@/components/api-key-dialog"; // Added import
 
 export function Header() {
   return (
@@ -26,6 +27,7 @@ export function Header() {
           {/* Add more nav links here if needed */}
         </nav>
         <div className="flex flex-1 items-center justify-end space-x-2">
+          <ApiKeyDialog /> {/* Added API Key Dialog Trigger */}
           <Button variant="ghost" size="sm" asChild>
             <Link href="https://github.com/your-repo" target="_blank" rel="noopener noreferrer">
               <Icons.GitHub className="h-4 w-4 mr-2" />

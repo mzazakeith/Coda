@@ -1,108 +1,90 @@
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenerativeAI } from '@ai-sdk/google';
+import { streamText, StreamingTextResponse, CoreMessage } from 'ai';
+import { NextRequest } from 'next/server';
+
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30;
 
 const GEMINI_API_KEY = process.env.GOOGLE_GEMINI_API_KEY;
 
-if (!GEMINI_API_KEY) {
-  console.error("Missing GEMINI_API_KEY environment variable.");
-  // We don't throw here to allow the app to build, but API calls will fail.
-  // Runtime checks will handle this.
-}
-
-const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
-
 export async function POST(req: NextRequest) {
-  if (!genAI) {
-    return NextResponse.json({ message: "Gemini API key not configured." }, { status: 500 });
+  if (!GEMINI_API_KEY) {
+    return new Response(
+      JSON.stringify({ message: "Missing GOOGLE_GEMINI_API_KEY environment variable." }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 
+  const google = new GoogleGenerativeAI({ apiKey: GEMINI_API_KEY });
+
   try {
-    const { message, history = [], model: modelName, files = [], githubPrUrl } = await req.json();
+    const { messages: historyMessages, data } = await req.json();
+    const { model: modelName, files = [], githubPrUrl, userMessage } = data;
 
-    if (!message && files.length === 0 && !githubPrUrl) {
-      return NextResponse.json({ message: "No input provided (message, files, or GitHub PR URL)." }, { status: 400 });
+    if (!userMessage && files.length === 0 && !githubPrUrl) {
+      return new Response(
+        JSON.stringify({ message: "No input provided (message, files, or GitHub PR URL)." }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
-    
-    const generationConfig = {
-      temperature: 0.7, // Adjust for creativity vs. factuality
-      topK: 1,
-      topP: 1,
-      maxOutputTokens: 8192, // Max for Gemini 1.5 Pro
-    };
 
-    const safetySettings = [
-      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-    ];
-
-    const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash-latest", generationConfig, safetySettings });
-
-    let prompt = "You are an expert AI code reviewer. Your goal is to provide a comprehensive, clear, and actionable review of the submitted code or pull request. ";
-    prompt += "Focus on identifying potential bugs, performance inefficiencies, security vulnerabilities, deviations from language-specific best practices, and areas for code style improvement. Provide suggestions that are actionable and include illustrative code snippets where appropriate. Be concise but thorough.\n\n";
+    let systemPrompt = "You are an expert AI code reviewer. Your primary goal is to provide a comprehensive, clear, and actionable review of the submitted code or pull request. \n\n" +
+      "Key areas to focus on:\n" +
+      "- **Bugs and Logic Errors**: Identify any potential bugs, logical flaws, or edge cases not handled.\n" +
+      "- **Performance**: Highlight inefficiencies and suggest optimizations.\n" +
+      "- **Security Vulnerabilities**: Point out potential security risks (e.g., XSS, SQLi, insecure handling of secrets).\n" +
+      "- **Best Practices**: Check adherence to language-specific best practices, design patterns, and coding standards.\n" +
+      "- **Code Style & Readability**: Suggest improvements for clarity, maintainability, and consistency. Comment on naming conventions, complexity, and documentation.\n" +
+      "- **Actionable Suggestions**: Provide concrete examples or code snippets for your recommendations where appropriate.\n" +
+      "- **Conciseness and Thoroughness**: Be concise in your explanations but thorough in your analysis. Prioritize critical issues.\n" +
+      "- **Tone**: Maintain a constructive and helpful tone.\n\n";
 
     if (githubPrUrl) {
-      prompt += \`A GitHub Pull Request is submitted for review: \${githubPrUrl}\n\`;
-      // TODO: Implement GitHub PR fetching logic here.
-      // For now, we'll just tell the model about the URL.
-      // In a real scenario, you'd fetch the diff and pass it.
-      prompt += "Please analyze this Pull Request. If you cannot access the URL, state that and review based on any other provided context or code.\n\n";
+      systemPrompt += \`A GitHub Pull Request is submitted for review: ${githubPrUrl}\n\`;
+      systemPrompt += "Please analyze this Pull Request. If you cannot directly access the URL content, state that clearly and perform your review based on any other provided code and context. Focus on the conceptual changes if the diff is not available to you.\n\n";
     }
 
     if (files.length > 0) {
-      prompt += "The following code files are submitted for review:\n\n";
+      systemPrompt += "The following code files are submitted for review:\n\n";
       files.forEach((file: { name: string; content: string }) => {
-        prompt += \`--- File: \${file.name} ---\n\`;
-        prompt += \`\`\`\n\${file.content}\n\`\`\`\n\n\`;
+        systemPrompt += `--- File: ${file.name} ---\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
       });
     }
     
-    if (message) {
-        prompt += \`The user has also provided the following message or query: "\${message}"\n\`;
-    } else if (files.length > 0 || githubPrUrl) {
-        prompt += "Please provide a review of the submitted code/PR.\n";
-    }
+    // The user's actual message is the last one in historyMessages from useChat
+    // Or it can be passed in `userMessage` if it's the first message.
+    // The Vercel AI SDK `useChat` hook sends messages in `messages` array.
+    // The last message is the current user prompt.
 
-
-    const chatHistory = history.map((msg: { role: string; content: string }) => ({
-      role: msg.role === "assistant" ? "model" : msg.role, // Gemini uses 'model' for assistant
-      parts: [{ text: msg.content }],
-    }));
+    const currentMessages: CoreMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...historyMessages.map((msg: { role: 'user' | 'assistant' | 'system' | 'function' | 'data' | 'tool', content: string }) => ({ // map to CoreMessage
+        role: msg.role,
+        content: msg.content,
+      }))
+    ];
     
-    // The last message in history is the current user message, which is already part of the prompt
-    // So we take all but the last message from history for the chat object.
-    // If history is empty, this is fine.
-    const chat = model.startChat({
-      history: chatHistory.slice(0, -1), // Exclude current user message from history if it's there
-      generationConfig,
-      safetySettings,
-    });
-    
-    const result = await chat.sendMessageStream(prompt);
-    
-    // Stream the response
-    const stream = new ReadableStream({
-      async start(controller) {
-        for await (const chunk of result.stream) {
-          try {
-            const text = chunk.text();
-            controller.enqueue(new TextEncoder().encode(text));
-          } catch (error) {
-            console.error("Error processing stream chunk:", error);
-            // Potentially enqueue an error message or handle differently
-          }
-        }
-        controller.close();
-      },
+    const result = await streamText({
+      model: google(modelName || 'gemini-1.5-flash-latest'),
+      messages: currentMessages,
+      temperature: 0.7,
+      topK: 1,
+      topP: 1,
+      // maxOutputTokens: 8192, // This is often set by the model provider by default
+      // safetySettings can be configured here if needed, similar to your previous setup
     });
 
-    return new Response(stream, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+    return result.toAIStreamResponse();
 
   } catch (error: any) {
     console.error("Error in /api/review:", error);
-    return NextResponse.json({ message: error.message || "An unexpected error occurred." }, { status: 500 });
+    const errorMessage = error.message || "An unexpected error occurred.";
+    // Check if the error is a Response object (e.g. from a fetch error)
+    if (error instanceof Response) {
+        const text = await error.text();
+        console.error("Underlying error response:", text);
+        return new Response(JSON.stringify({ message: `API Error: ${error.status} ${text}` }), { status: error.status, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ message: errorMessage }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
