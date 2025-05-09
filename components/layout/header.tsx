@@ -14,7 +14,7 @@ export function Header() {
         <Link href="/" className="mr-6 flex items-center space-x-2">
           <Icons.Logo className="h-6 w-6" />
           <span className="font-bold sm:inline-block">
-            AI Code Reviewer
+            Coda
           </span>
         </Link>
         <nav className="flex items-center gap-4 text-sm lg:gap-6">

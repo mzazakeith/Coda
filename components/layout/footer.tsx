@@ -27,7 +27,7 @@ export function Footer() {
         </p>
         <div className="flex items-center space-x-2">
           <Icons.Logo className="h-5 w-5 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">AI Code Reviewer &copy; {new Date().getFullYear()}</span>
+          <span className="text-sm text-muted-foreground">Coda &copy; {new Date().getFullYear()}</span>
         </div>
       </div>
     </footer>
