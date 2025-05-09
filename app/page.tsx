@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle2, Zap } from "lucide-react";
 
 export default function HomePage() {
   return (
-    <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16 ">
+    <div className="flex flex-col items-center justify-center gap-12 px-4 py-16 ">
       <div className="flex flex-col items-center text-center space-y-6">
         <Icons.Logo className="h-20 w-20 text-primary" />
         <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
